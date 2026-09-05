@@ -1,8 +1,8 @@
 """
-Football Analysis Project - Analýza futbalovej štatistiky
+Football Analysis Project - Main Analysis Module
 
-Modul: analysis.py
-Popis: Analýza dát o útočníkoch (FW) vrátane štatistiky, výšky, gólov a skúsenosti.
+Modul: analysis.py (refaktorovaná verzia s použitím config.py)
+Popis: Analýza dát o futbalových útočníkoch podľa pozícií.
 
 Autor: denishorsky98-cmd
 Dátum: 2026
@@ -14,35 +14,20 @@ import logging
 import pandas as pd
 import matplotlib.pyplot as plt
 
-# ============================================================================
-# KONFIGURÁCIA
-# ============================================================================
-
-# Názov vstupného súboru
-CSV_FILE = 'SquadLists.csv'
-
-# Názov výstupného grafu
-OUTPUT_IMAGE = 'football_analysis.png'
-
-# Počet prvkov v TOP listinách
-TOP_N = 10
-
-# Počet bins v histograme
-HISTOGRAM_BINS = 20
-
-# Veľkosť obrázka
-FIGURE_SIZE = (14, 10)
-
-# DPI kvality
-DPI_QUALITY = 300
+# Import konfigurácie
+try:
+    import config
+except ImportError:
+    print("❌ Chyba: Súbor 'config.py' nebol nájdený!")
+    sys.exit(1)
 
 # ============================================================================
 # LOGGING SETUP
 # ============================================================================
 
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(levelname)s - %(message)s'
+    level=getattr(logging, config.LOG_LEVEL),
+    format=config.LOG_FORMAT
 )
 logger = logging.getLogger(__name__)
 
@@ -65,147 +50,183 @@ def load_data(filepath: str) -> pd.DataFrame:
         FileNotFoundError: Ak súbor neexistuje
         pd.errors.EmptyDataError: Ak je súbor prázdny
     """
-    logger.info(f"Načítavam dáta z '{filepath}'...")
+    logger.info(config.MESSAGES['info_loading'].format(filepath))
     
     if not os.path.exists(filepath):
-        logger.error(f"❌ Súbor '{filepath}' neexistuje!")
-        raise FileNotFoundError(f"Súbor '{filepath}' nebol nájdený.")
+        error_msg = config.MESSAGES['error_file_not_found'].format(filepath)
+        logger.error(error_msg)
+        raise FileNotFoundError(error_msg)
     
     try:
         df = pd.read_csv(filepath)
-        logger.info(f"✅ Dáta úspešne načítané ({len(df)} riadkov)")
+        success_msg = config.MESSAGES['success_loaded'].format(len(df))
+        logger.info(success_msg)
         return df
     except pd.errors.EmptyDataError:
-        logger.error(f"❌ Súbor '{filepath}' je prázdny!")
+        error_msg = config.MESSAGES['error_empty_file'].format(filepath)
+        logger.error(error_msg)
         raise
     except Exception as e:
-        logger.error(f"❌ Chyba pri načítaní dát: {e}")
+        error_msg = config.MESSAGES['error_unexpected'].format(e)
+        logger.error(error_msg)
         raise
 
 
-def filter_forwards(df: pd.DataFrame) -> pd.DataFrame:
+def filter_by_position(df: pd.DataFrame, position: str) -> pd.DataFrame:
     """
-    Filtruje iba útočníkov (FW) z datasetu.
+    Filtruje hráčov podľa pozície.
     
     Args:
         df (pd.DataFrame): Pôvodný dataset
+        position (str): Pozícia (FW, MF, DF, GK)
         
     Returns:
-        pd.DataFrame: Dataset s útočníkmi
+        pd.DataFrame: Filtrovaný dataset
     """
-    forwards = df[df['Position'] == 'FW'].copy()
-    logger.info(f"Počet útočníkov (FW): {len(forwards)}")
-    return forwards
+    logger.info(config.MESSAGES['info_filtering'].format(position))
+    
+    filtered = df[df[config.COLUMNS_REQUIRED['position']] == position].copy()
+    success_msg = config.MESSAGES['success_filtered'].format(position, len(filtered))
+    logger.info(success_msg)
+    
+    return filtered
 
 
-def calculate_statistics(forwards: pd.DataFrame) -> dict:
+def calculate_statistics(players: pd.DataFrame) -> dict:
     """
-    Vypočíta základné štatistiky o útočníkoch.
+    Vypočíta základné štatistiky o hráčoch.
     
     Args:
-        forwards (pd.DataFrame): Dataset s útočníkmi
+        players (pd.DataFrame): Dataset s hráčmi
         
     Returns:
-        dict: Slovník s štatistikami
+        dict: Slovník so štatistikami
     """
+    logger.info(config.MESSAGES['info_stats'])
+    
+    height_col = config.COLUMNS_REQUIRED['height']
+    goals_col = config.COLUMNS_REQUIRED['goals']
+    caps_col = config.COLUMNS_REQUIRED['caps']
+    team_col = config.COLUMNS_REQUIRED['team']
+    player_col = config.COLUMNS_REQUIRED['player']
+    
     stats = {
-        'total_forwards': len(forwards),
-        'avg_height': forwards['Height (cm)'].mean(),
-        'avg_goals': forwards['Goals'].mean(),
-        'avg_caps': forwards['Caps'].mean(),
-        'top_teams': forwards.groupby('Team')['Goals'].sum().nlargest(TOP_N),
-        'top_players': forwards.nlargest(TOP_N, 'Goals')[['Player Name', 'Goals']],
+        'total': len(players),
+        'avg_height': players[height_col].mean(),
+        'avg_goals': players[goals_col].mean(),
+        'avg_caps': players[caps_col].mean(),
+        'top_teams': players.groupby(team_col)[goals_col].sum().nlargest(config.TOP_N),
+        'top_players': players.nlargest(config.TOP_N, goals_col)[[player_col, goals_col]],
     }
     
-    logger.info(f"Štatistiky vypočítané")
     return stats
 
 
-def print_statistics(stats: dict) -> None:
+def print_statistics(stats: dict, position: str) -> None:
     """
     Vypíše štatistiky v peknom formáte.
     
     Args:
         stats (dict): Slovník so štatistikami
+        position (str): Pozícia (FW, MF, DF, GK)
     """
-    print("\n" + "=" * 60)
-    print("⚽ FOOTBALL ANALYSIS - ÚTOČNÍCI (FW)")
-    print("=" * 60)
-    print(f"\n📊 Celkový počet útočníkov: {stats['total_forwards']}")
-    print(f"📏 Priemerná výška: {stats['avg_height']:.1f} cm")
-    print(f"⚽ Priemer gólov na hráča: {stats['avg_goals']:.1f}")
-    print(f"🎮 Priemer Caps na hráča: {stats['avg_caps']:.1f}")
-    print("\n" + "=" * 60)
-    print(f"TOP {TOP_N} TÍMOV PODĽA GÓLOV:")
-    print("=" * 60)
+    dp = config.DECIMAL_PLACES
+    
+    print("\n" + "=" * 70)
+    print(f"⚽ FOOTBALL ANALYSIS - POZÍCIA: {position}")
+    print("=" * 70)
+    print(f"\n📊 Celkový počet hráčov: {stats['total']}")
+    print(f"📏 Priemerná výška: {stats['avg_height']:.{dp}f} cm")
+    print(f"⚽ Priemer gólov na hráča: {stats['avg_goals']:.{dp}f}")
+    print(f"🎮 Priemer Caps na hráča: {stats['avg_caps']:.{dp}f}")
+    
+    print("\n" + "=" * 70)
+    print(f"TOP {config.TOP_N} TÍMOV PODĽA GÓLOV:")
+    print("=" * 70)
     print(stats['top_teams'])
-    print("\n" + "=" * 60)
-    print(f"TOP {TOP_N} HRÁČOV PODĽA GÓLOV:")
-    print("=" * 60)
-    print(stats['top_players'].to_string())
-    print("=" * 60 + "\n")
+    
+    print("\n" + "=" * 70)
+    print(f"TOP {config.TOP_N} HRÁČOV PODĽA GÓLOV:")
+    print("=" * 70)
+    print(stats['top_players'].to_string(index=False))
+    print("=" * 70 + "\n")
 
 
-def create_visualizations(forwards: pd.DataFrame, stats: dict, output_file: str) -> None:
+def create_visualizations(players: pd.DataFrame, stats: dict, 
+                         output_file: str, position: str) -> None:
     """
     Vytvorí 4 grafy a uloží ich do PNG súboru.
     
     Args:
-        forwards (pd.DataFrame): Dataset s útočníkmi
+        players (pd.DataFrame): Dataset s hráčmi
         stats (dict): Slovník so štatistikami
         output_file (str): Cesta k výstupnému súboru
+        position (str): Pozícia (FW, MF, DF, GK)
     """
-    logger.info("Vytváram grafy...")
+    logger.info(config.MESSAGES['info_graphs'])
     
-    fig, axes = plt.subplots(2, 2, figsize=FIGURE_SIZE)
+    height_col = config.COLUMNS_REQUIRED['height']
+    goals_col = config.COLUMNS_REQUIRED['goals']
+    caps_col = config.COLUMNS_REQUIRED['caps']
+    
+    fig, axes = plt.subplots(2, 2, figsize=config.FIGURE_SIZE)
+    fig.suptitle(f'Football Analysis - Pozícia: {position}', fontsize=16, fontweight='bold')
     
     # ========================================================================
-    # GRAF 1: TOP 10 TÍMOV
+    # GRAF 1: TOP TÍMOV
     # ========================================================================
-    stats['top_teams'].plot(kind='bar', ax=axes[0, 0], color='steelblue')
-    axes[0, 0].set_title(f'TOP {TOP_N} Tímov podľa Gólov', fontsize=12, fontweight='bold')
+    stats['top_teams'].plot(kind='bar', ax=axes[0, 0], color=config.COLOR_TEAMS)
+    axes[0, 0].set_title(f'TOP {config.TOP_N} Tímov podľa Gólov', 
+                         fontsize=12, fontweight='bold')
     axes[0, 0].set_xlabel('Tím')
     axes[0, 0].set_ylabel('Počet Gólov')
     axes[0, 0].tick_params(axis='x', rotation=45)
+    axes[0, 0].grid(True, alpha=0.3, axis='y')
     
     # ========================================================================
     # GRAF 2: DISTRIBÚCIA VÝŠKY
     # ========================================================================
-    height_data = forwards['Height (cm)'].dropna()
-    axes[0, 1].hist(height_data, bins=HISTOGRAM_BINS, color='green', alpha=0.7, edgecolor='black')
-    axes[0, 1].set_title('Distribúcia Výšky Útočníkov', fontsize=12, fontweight='bold')
+    height_data = players[height_col].dropna()
+    axes[0, 1].hist(height_data, bins=config.HISTOGRAM_BINS, 
+                    color=config.COLOR_HEIGHT, alpha=0.7, edgecolor='black')
+    axes[0, 1].set_title('Distribúcia Výšky', fontsize=12, fontweight='bold')
     axes[0, 1].set_xlabel('Výška (cm)')
     axes[0, 1].set_ylabel('Počet Hráčov')
     
     # Priamka pre priemer
     avg_height = stats['avg_height']
-    axes[0, 1].axvline(avg_height, color='red', linestyle='--', linewidth=2, 
-                       label=f'Priemer: {avg_height:.1f}cm')
+    axes[0, 1].axvline(avg_height, color=config.COLOR_AVG_LINE, linestyle='--', 
+                       linewidth=2, label=f'Priemer: {avg_height:.{config.DECIMAL_PLACES}f}cm')
     axes[0, 1].legend()
+    axes[0, 1].grid(True, alpha=0.3, axis='y')
     
     # ========================================================================
     # GRAF 3: GÓLY vs. SKÚSENOSŤ (CAPS)
     # ========================================================================
-    axes[1, 0].scatter(forwards['Caps'], forwards['Goals'], alpha=0.6, color='orange', s=50)
+    axes[1, 0].scatter(players[caps_col], players[goals_col], 
+                      alpha=0.6, color=config.COLOR_SCATTER, s=50)
     axes[1, 0].set_title('Góly vs. Skúsenosť (Caps)', fontsize=12, fontweight='bold')
     axes[1, 0].set_xlabel('Caps (Počet Zápasov)')
     axes[1, 0].set_ylabel('Góly')
     axes[1, 0].grid(True, alpha=0.3)
     
     # ========================================================================
-    # GRAF 4: TOP 10 HRÁČOV
+    # GRAF 4: TOP HRÁČOV
     # ========================================================================
-    top_players = stats['top_players'].set_index('Player Name')
-    top_players.plot(kind='barh', ax=axes[1, 1], color='purple', legend=False)
-    axes[1, 1].set_title(f'TOP {TOP_N} Hráčov podľa Gólov', fontsize=12, fontweight='bold')
+    top_players = stats['top_players'].set_index(config.COLUMNS_REQUIRED['player'])
+    top_players.plot(kind='barh', ax=axes[1, 1], color=config.COLOR_PLAYERS, legend=False)
+    axes[1, 1].set_title(f'TOP {config.TOP_N} Hráčov podľa Gólov', 
+                         fontsize=12, fontweight='bold')
     axes[1, 1].set_xlabel('Počet Gólov')
+    axes[1, 1].grid(True, alpha=0.3, axis='x')
     
     # ========================================================================
     # ULOŽENIE OBRÁZKA
     # ========================================================================
     plt.tight_layout()
-    plt.savefig(output_file, dpi=DPI_QUALITY, bbox_inches='tight')
-    logger.info(f"✅ Grafy uložené ako '{output_file}'")
+    plt.savefig(output_file, dpi=config.DPI_QUALITY, bbox_inches='tight')
+    success_msg = config.MESSAGES['success_graphs'].format(output_file)
+    logger.info(success_msg)
     plt.show()
 
 
@@ -219,27 +240,28 @@ def main() -> None:
     """
     try:
         # Krok 1: Načítaj dáta
-        df = load_data(CSV_FILE)
+        df = load_data(config.CSV_FILE)
         
-        # Krok 2: Filtruj útočníkov
-        forwards = filter_forwards(df)
+        # Krok 2: Filtruj podľa pozície
+        players = filter_by_position(df, config.POSITION_FILTER)
         
         # Krok 3: Vypočítaj štatistiky
-        stats = calculate_statistics(forwards)
+        stats = calculate_statistics(players)
         
         # Krok 4: Vypíš štatistiky
-        print_statistics(stats)
+        print_statistics(stats, config.POSITION_FILTER)
         
         # Krok 5: Vytvor grafy
-        create_visualizations(forwards, stats, OUTPUT_IMAGE)
+        create_visualizations(players, stats, config.OUTPUT_IMAGE, config.POSITION_FILTER)
         
-        logger.info("✅ Analýza úspešne dokončená!")
+        logger.info(config.MESSAGES['success_complete'])
         
     except FileNotFoundError as e:
-        logger.error(f"Chyba: {e}")
+        logger.error(str(e))
         sys.exit(1)
     except Exception as e:
-        logger.error(f"Neočakávaná chyba: {e}")
+        error_msg = config.MESSAGES['error_unexpected'].format(e)
+        logger.error(error_msg)
         sys.exit(1)
 
 
