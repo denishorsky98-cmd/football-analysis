@@ -1,0 +1,34 @@
+# CSV dáta
+SquadLists.csv
+
+# Vygenerované obrázky
+*.png
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual Environment
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Pytest
+.pytest_cache/
+.coverage
+
+# Output súbory
+*.log
+output/
